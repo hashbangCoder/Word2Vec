@@ -1,2 +1,3 @@
 # Word2Vec
-word2vec implementation on Keras for finetuning word embeddings
+1. Word2vec implementation on Keras for finetuning word embeddings
+2. Text Classification using LSTM and fine-tuned embeddings

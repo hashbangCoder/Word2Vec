@@ -5,7 +5,7 @@ from optparse import OptionParser
 from nltk.tokenize import wordpunct_tokenize
 from keras.preprocessing.sequence import skipgrams
 from keras.preprocessing.sequence import make_sampling_table
-from keras.layers.core import Reshape, Dense, Merge, Flatten
+from keras.layers.core import Reshape, Dense, Merge, Flatten, Activation
 from keras.layers.embeddings import Embedding
 from keras.models import Sequential
 from collections import Counter
@@ -25,8 +25,10 @@ parser.add_option("-f","--frequency-threshold",dest = 'freq', help = "Minimum th
 parser.add_option("-n","--neg-samples",dest = 'nsamples', help = "# of negative samples", default = 10)
 parser.add_option("-s","--sample-factor",dest = 'samp_factor', help = "Higher the value, more sampling of frequent words", default = 1e-5)
 parser.add_option("-l","--vector-length",dest = 'veclen', help = "Length of embedding", default = 300)
+parser.add_option("--epochs",dest = 'epochs', help = "Number of epochs", default = 1)
 (options, args) = parser.parse_args()
 
+print '\n\n\n\n'
 veclen = int(options.veclen)
 def extractVecs():
 ## Extract pretrained vectors (as a starting point) from Downloaded CSV
@@ -146,30 +148,33 @@ model.add(Flatten())
 model.add(Dense(1))
 model.add(Activation('sigmoid'))
 model.compile(loss='mse', optimizer='adam')
-print 'NN model compiled...Start training on the text corpus'
+
 couples  = np.array(couples)
-histObj  = model.fit(couples,labels,batch_size=32,nb_epoch=5,verbose = 1, shuffle = False,)
+print 'NN model compiled...Start training on the text corpus'
+histObj  = model.fit([couples[:,0],couples[:,1]],labels,batch_size=32,nb_epoch=int(options.epochs),verbose = 1, shuffle = False)
 
 with open('wordEmbedMat.pkl','wb') as f:
-	cPickle.dump(f,model.layers[0].layers[0].get_weights()[0],cPickle.HIGHEST_PROTOCOL)
+	cPickle.dump(model.layers[0].layers[0].get_weights()[0],f,cPickle.HIGHEST_PROTOCOL)
 with open('word2Ind_dict.pkl','wb') as f:
-	cPickle.dump(f,wordDict,cPickle.HIGHEST_PROTOCOL)
+	cPickle.dump(wordDict,f,cPickle.HIGHEST_PROTOCOL)
 
 
 ## Ported from deprecated Keras example
-def testWord2Vec(word_list,num_display=3):
+def testWord2Vec(word_list,weights,num_display=3):
 	##Generate inverse word mapping for easy lookup
 	invWordDict = {v: k for k, v in wordDict.iteritems()}
 
 	## Normalize the trained weights for cosine similarity
-	trainedWeights = normalize(model.layers[0].layers[0].get_weights()[0],norm = 'l2', axis = '1')
+	trainedWeights = normalize(weights,norm = 'l2', axis = 1)
 	for word in word_list:
 		try:
 			embedding = trainedWeights[wordDict[word],:]
-			prox = np.argsort(np.dot(embedding,trainedWeights)/np.norm(embedding))[-num_display:].tolist()
+			prox = np.argsort(np.dot(embedding,trainedWeights.transpose())/np.linalg.norm(embedding))[-num_display:].tolist()		
 			prox.reverse()
-			print 'Closest word vector (by cosine similarity) for %s : ', [invWordDict[item] for item in prox]
+			print 'Closest word vector (by cosine similarity) for %s : '%word, [invWordDict[item] for item in prox]
 			
 		except KeyError:
 			print '"%s" not found in the Trained Word Embeddings. Skipping...'%word
 			pass
+
+

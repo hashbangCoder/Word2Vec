@@ -96,7 +96,7 @@ elif options.dir and (not options.exist):
 	completeWordDict = Counter(wordList)
 	wordList, wordDict, sampleMatrix = delInfrequentTokens(wordList)
 	print 'Tokenized, deleted rare tokens and now dumping pickled tuple of (wordList,wordDict,sampleMatrix) to file...'
-	with open('saved_tokenized_text.txt','wb') as f:
+	with open('../Data/saved_tokenized_text.txt','wb') as f:
 		cPickle.dump((wordList,wordDict,sampleMatrix),f,cPickle.HIGHEST_PROTOCOL)
 elif options.exist and (not options.dir):
 	print 'Loading tokenized word list from preexisting file...'
@@ -149,9 +149,9 @@ couples  = np.array(couples)
 print 'NN model compiled...Start training on the text corpus'
 histObj  = model.fit([couples[:,0],couples[:,1]],labels,batch_size=32,nb_epoch=int(options.epochs),verbose = 1, shuffle = False)
 
-with open('wordEmbedMat.pkl','wb') as f:
+with open('../saved_files/wordEmbedMat.pkl','wb') as f:
 	cPickle.dump(model.layers[0].layers[0].get_weights()[0],f,cPickle.HIGHEST_PROTOCOL)
-with open('word2Ind_dict.pkl','wb') as f:
+with open('../saved_files/word2Ind_dict.pkl','wb') as f:
 	cPickle.dump(wordDict,f,cPickle.HIGHEST_PROTOCOL)
 
 

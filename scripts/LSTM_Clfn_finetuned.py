@@ -14,14 +14,15 @@ from nltk.tokenize import wordpunct_tokenize
 import datetime,os,h5py
 
 parser = OptionParser()
-parser.add_option("-v", "--vectors", dest="vec_dict",help="Word-to-Index Dictionary path",default = '../saved_files/word2Ind_dict.pkl')
-parser.add_option("-p", "--pretrained", dest="pretrained",help="Weights file path",default = '../saved_files/wordEmbedMat.pkl')
-parser.add_option("-o", "--output", dest="outputFile",help="Weights output file name",default = 'vec_weights.wts')
-parser.add_option("-i", "--input", dest="input",help="Input CSV file path",default = '../Data/REF.csv')
+parser.add_option("-v", "--vectors", dest="vec_dict",help="Word-to-Index Dictionary path",default = '../saved_files/word2Ind_dict.pkl')  #Dict with word-Index mappings for Embedded layer
+parser.add_option("-p", "--pretrained", dest="pretrained",help="Weights file path",default = '../saved_files/wordEmbedMat.pkl')		# Embed layer weights
+parser.add_option("-o", "--output", dest="outputFile",help="Weights output file name",default = '../OutputInfo/LSTM_finetune_op')			# Output file name for losses, accuracy info
+parser.add_option("-i", "--input", dest="input",help="Input CSV file path",default = '../Data/REF.csv')	
 parser.add_option("-s", "--split-ratio", dest="split",help="Train data percentage",default = 0.9)
 parser.add_option("-l", "--vector-length", dest="veclen",help="Length of word embeddings",default = 300)
 parser.add_option("-e", "--num-epochs", dest="nEpochs",help="Number of epochs",default = 15)
 parser.add_option("--model_weights", dest="model_weights",help="Load model parameters from file",default = False)
+parser.add_option("--add-info", dest="add_info",help="Additional Info you want stored with output",default = None)
 
 (options, args) = parser.parse_args()
 
@@ -89,10 +90,13 @@ print 'Number of Test Samples : %d' %len(validData), '\tNumber of "REF" sub-samp
 
 model = Sequential()
 model.add(keras.layers.embeddings.Embedding(vocabSize,options.veclen,weights=(wordWeights,),mask_zero = True,trainable = False))
-model.add(keras.layers.recurrent.GRU(128,init='glorot_uniform',inner_init='orthogonal',activation='tanh',inner_activation='hard_sigmoid',return_sequences = True))
-model.add(keras.layers.recurrent.GRU(64,init='glorot_uniform',inner_init='orthogonal',activation='tanh',inner_activation='hard_sigmoid'))
+#model.add(keras.layers.recurrent.GRU(128,init='glorot_uniform',inner_init='orthogonal',activation='tanh',inner_activation='hard_sigmoid',return_sequences = True))
+#model.add(keras.layers.recurrent.GRU(64,init='glorot_uniform',inner_init='orthogonal',activation='tanh',inner_activation='hard_sigmoid'))
+model.add(keras.layers.recurrent.SimpleRNN(128,init='glorot_uniform',inner_init='orthogonal',activation='tanh',return_sequences = True))
+model.add(keras.layers.recurrent.SimpleRNN(64,init='glorot_uniform',inner_init='orthogonal',activation='tanh',))
+model.add(Dropout(0.5))
 model.add(Dense(1,activation = 'sigmoid'))
-opt = keras.optimizers.Adam(lr=0.05, beta_1=0.9, beta_2=0.999, epsilon=1e-08)
+opt = keras.optimizers.Adam()
 model.compile(loss='binary_crossentropy',
               optimizer=opt,
               metrics=['accuracy'])
@@ -114,13 +118,16 @@ if not options.model_weights:
 	#trainData = validData = None
 
 	print('Start Training Model...')
+	print str(options.add_info)
 	Hist = model.fit(trainDataNumbers,trainLabels,batch_size = 64,nb_epoch = numEpochs,validation_data = (validDataNumbers,validLabels),verbose = 1)
 	cur_time =  datetime.datetime.strftime(datetime.datetime.now(), '%dth-%H:%M:%S')
 	with open(options.outputFile+'_'+cur_time + '.json','w') as f:
+		if options.add_info:
+			Hist.history['info'] = str(options.add_info)
 		json.dump(Hist.history,f)
 	print 'Loss and Validations history stored in ',options.outputFile+'_'+cur_time
-	model.save_weights('../saved_files/LSTM_params_finetuned.h5')
-	print 'Model parameters stored at ../saved_files/LSTM_params_finetuned.h5'
+	model.save_weights('../OutputInfo/ModelParams/LSTM_params_finetuned_%s.h5'%cur_time)
+	print 'Model parameters stored at ../OutputInfo/ModelParams/LSTM_finetuned_%s.h5' %cur_time
 elif os.path.exists(options.model_weights):
 	model.load_weights(options.model_weights)
 	model.compile(loss = 'binary_crossentropy',optimizer = 'adam',metrics = ['accuracy'] )

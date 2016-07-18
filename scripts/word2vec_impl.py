@@ -18,7 +18,7 @@ parser.add_option("--exist", dest="exist",help="Path to tokenized and pickled wo
 parser.add_option("-e","--exclude",dest = 'exclude', help = "Comma separated files to exclude", default = None)
 parser.add_option("-w","--window-length",dest = 'window', help = "Length of window", default = 5)
 parser.add_option("-f","--frequency-threshold",dest = 'freq', help = "Minimum threshold for considering words", default = 2)
-parser.add_option("-n","--neg-samples",dest = 'nsamples', help = "# of negative samples", default = 7)
+parser.add_option("-n","--neg-samples",dest = 'nsamples', help = "# of negative samples", default = 5)
 parser.add_option("-s","--sample-factor",dest = 'samp_factor', help = "Higher the value, more sampling of frequent words", default = 1e-5)
 parser.add_option("-l","--vector-length",dest = 'veclen', help = "Length of embedding", default = 300)
 parser.add_option("--epochs",dest = 'epochs', help = "Number of epochs", default = 1)
@@ -149,9 +149,9 @@ couples  = np.array(couples)
 print 'NN model compiled...Start training on the text corpus'
 histObj  = model.fit([couples[:,0],couples[:,1]],labels,batch_size=32,nb_epoch=int(options.epochs),verbose = 1, shuffle = False)
 
-with open('../saved_files/wordEmbedMat.pkl','wb') as f:
+with open('../Finetuned_Embeddings/window_length/wordEmbedMat_' + str(options.window) + 'WL.pkl','wb') as f:
 	cPickle.dump(model.layers[0].layers[0].get_weights()[0],f,cPickle.HIGHEST_PROTOCOL)
-with open('../saved_files/word2Ind_dict.pkl','wb') as f:
+with open('../Finetuned_Embeddings/window_length/word2Ind_dict_'+ str(options.window)+'WL.pkl','wb') as f:
 	cPickle.dump(wordDict,f,cPickle.HIGHEST_PROTOCOL)
 
 

@@ -20,6 +20,8 @@ parser.add_option("--model-weights", dest="model_weights",help="Load model param
 parser.add_option("--add-info", dest="add_info",help="Additional Info you want stored with output",default = None)			  
 parser.add_option("--neurons", dest="neurons",help="Neurons in each layer",default = '128,64')
 parser.add_option("--gpu", dest="gpu",help="GPU device",default = 0)
+parser.add_option('--main-info-file',help = 'File where all metadata will be stored' ,dest ='main_info_file', default ='')  #'../Output/results/LSTM_Bidi_results.txt'
+parser.add_option('--label',help = 'MITI label to classify' ,dest ='label', default =None)  #'../Output/results/LSTM_Bidi_results.txt'
 (options, args) = parser.parse_args()
 os.environ['THEANO_FLAGS'] = 'floatX=float32,lib.cnmem=1,device=gpu' + str(options.gpu)
 (options, args) = parser.parse_args()
@@ -56,14 +58,16 @@ def getWeights():
 #validLabels[np.where(validLabels == 'REF')[0]] = 1
 #Data = None
 
-scores = {'c1_precision' : [],'c1_recall' : [], 'c0_precision' : [], 'c0_recall' :  [], 'accuracy' : [],'c1_fscore' : [],'c0_fscore' : []}
+
+scores = {'c1_precision' : [],'c1_recall' : [], 'c0_precision' : [], 'c0_recall' :  [], 'accuracy' : [],'c1_fscore' : [],'c0_fscore' : [],'mean_false_length':[], 'mean_actual_length' : [],'samples:info':[]}
 wordWeights,vec_dict = getWeights()
 vocabSize = wordWeights.shape[0]
 wordWeights[0] = np.zeros((300,))
+assert options.label in ['Question','REF','SEEK','AUTO','PWOP','NGI','NPWP','AF','CON'], 'Invalid Label provided for classification'
 
 for run in range(int(options.runs)):
 
-	trainData,trainLabels,validData,validLabels = utils.load_data(task = 'all',split = float(options.split))
+	trainData,trainLabels,validData,validLabels,class_weights = utils.load_data(label = options.label,task = 'all',split = float(options.split))
 	trainData, trainLabels = np.array(trainData,dtype=object),np.array(trainLabels,dtype='int32')
 	validData,validLabels = np.array(validData,dtype=object),np.array(validLabels,dtype='int32')
 
@@ -100,10 +104,15 @@ for run in range(int(options.runs)):
 	#model.compile(loss='binary_crossentropy',
 	#			  optimizer='adam',
 	#			  metrics=['accuracy'])
+	pos_train_samples = len(np.where(trainLabels == 1 )[0])
+	pos_valid_samples = len(np.where(validLabels == 1 )[0])
 
 	print '\n'*10
-	print 'Number of Train Samples : %d' %len(trainData), '\tNumber of "REF" sub-samples : %d' %len(np.where(trainLabels == 1 )[0])
-	print 'Number of Test Samples : %d' %len(validData), '\tNumber of "REF" sub-samples : %d' %len(np.where(validLabels == 1)[0])
+	print 'Number of Train Samples : %d' %len(trainData), '\tNumber of "%s" sub-samples : %d' %(options.label,pos_train_samples)
+	print 'Number of Test Samples : %d' %len(validData), '\tNumber of "%s" sub-samples : %d' %(options.label,pos_valid_samples)  
+
+
+	print '\n'*10
 	checkpointer = ModelCheckpoint(filepath=options.outputWeights, verbose=1, save_best_only=True,monitor='val_acc',mode = 'max')
 	class lrAnneal(keras.callbacks.EarlyStopping):
 		def __init__(self, monitor='val_loss', patience=0, verbose=0, mode='auto',anneal = True):
@@ -134,7 +143,7 @@ for run in range(int(options.runs)):
 	if not options.model_weights:
 		numEpochs = int(options.nEpochs)
 		print('Start Training Model...')
-		Hist = model.fit(trainDataNumbers,trainLabels,batch_size = 64,nb_epoch = numEpochs,validation_data = (validDataNumbers,validLabels),verbose = 1,callbacks=[checkpointer,lr_anneal])
+		Hist = model.fit(trainDataNumbers,trainLabels,batch_size = 64,nb_epoch = numEpochs,validation_data = (validDataNumbers,validLabels),verbose = 1,callbacks=[checkpointer,lr_anneal],class_weight = class_weights)
 		curr_time =  datetime.datetime.strftime(datetime.datetime.now(), '%dth-%H:%M:%S')
 		with open(options.outputFile+'_'+curr_time + '.pkl','w') as f:
 			json.dump(Hist.history,f)
@@ -143,11 +152,13 @@ for run in range(int(options.runs)):
 		model.load_weights(options.model_weights)
 		opt = keras.optimizers.Adam(float(options.lr))
 		model.compile(loss = 'binary_crossentropy',optimizer = opt,metrics = ['accuracy'] )
+		raise KeyboardInterrupt
 
 
 	print 'Loss and Validations history stored in ',options.outputFile+'_'+curr_time
 	#model.save_weights('../Output/ModelParams/LSTM_params_BiDi_%s.h5'%curr_time)
 	print 'Best Model parameters stored at ../Output/ModelParams/LSTM_BiDi_%s.h5' %curr_time
+	mfalseLength,mactualLength = utils.analyze_false(validData,validDataNumbers,validLabels,model)
 	c1p,c1r,c0p,c0r,acc,c1f,c0f = utils.precision_recall(validDataNumbers,validLabels,model,weightsPath = options.outputWeights)
 	print 'Run %d results :-' %(run+1)
 	scores['c1_precision'].append(c1p)
@@ -157,11 +168,14 @@ for run in range(int(options.runs)):
 	scores['accuracy'].append(acc)
 	scores['c1_fscore'].append(c1f)
 	scores['c0_fscore'].append(c0f)
-
+	scores['mean_actual_length'].append(mactualLength)
+	scores['mean_false_length'].append(mfalseLength)
+	scores['sample_info'].append((len(trainData),pos_train_samples,len(validData),pos_valid_samples))
 
 results_info = curr_time + '\tHyperParameters:- \nWord-Index Dictionary : %s \tWordvectors file : %s \tLearning Rate : %f \t split-ratio : %f \tEpochs : %d \tOutput Weights : %s \tResults File : %s\n Neurons : %s \nModel-Layers: %s\nResults averaged over %d runs' %(options.vec_dict, options.pretrained, float(options.lr), float(options.split), int(options.nEpochs),options.outputWeights, options.outputFile,str(options.neurons),str(options.nLayers),int(options.runs))
+results += '\nLabel : %s' %options.label
 
-utils.saveResults(filePath = '../Output/results/LSTM_finetuned_BiDi_embedds.txt',metadata = results_info,scores = scores)
+utils.saveResults(filePath = options.main_info_file,metadata = results_info,scores = scores)
 #
 #def precision_recall(validDataNumbers,ValidLabels,model):
 #	'Calculating precision and recall for model...'

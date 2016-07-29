@@ -5,6 +5,7 @@ import time
 from optparse import OptionParser
 from autocorrect import spell
 from nltk.tokenize import wordpunct_tokenize
+import utils
 
 parser = OptionParser()
 parser.add_option("-o", "--output", dest="outputFile",
@@ -12,7 +13,6 @@ parser.add_option("-o", "--output", dest="outputFile",
 parser.add_option("-p", "--pretrained", dest="pretrained",
                   help="Pretrained word vector file name",default = '../Pretrained_WordVecs/glove.6B.300d.txt')
 parser.add_option("-i", "--input", dest="input",help="input corpus file name", default = '../Data/REF.csv')
-parser.add_option("-s","--spell-check",dest = 'spellCheck', help = "Boolean flag to specify if word have to be spell corrected", default = False)
 
 (options, args) = parser.parse_args()
 #if len(args) < 2:
@@ -29,22 +29,16 @@ def extractVecs():
 	globalWordVectors = globalWordFile[:,1:].astype(np.float)
 	globalWordFile = None
 	
-	### Pandas read_csv implementation - Broken
-	#globalWordFile = pd.read_csv(options.pretrained,delimiter = ' ', header = None)
-	#globalWordVectors = globalWordFile.ix[:,1:]
-	#globalWordTokens = globalWordFile.ix[:,0]
-	#globalWordFile = None
 	print time.clock() - t0, " seconds taken for loading and slicing gLoVe Word Vectors"
 	return globalWordTokens,globalWordVectors
 
 
 
-trainDataset = pd.read_csv(options.input,error_bad_lines=False,header=None)
-oneBigDataString = trainDataset.ix[:,1].str.cat(sep = '\n')
+trainDataset = utils.load_data(label = '',generate_vectors = True)
+oneBigDataString = '\n'.join(trainDataset)
 word_tokens = sorted(set(wordpunct_tokenize(oneBigDataString)))
 vocabSize = len(word_tokens)
 
-trainDataset = trainDataset.as_matrix()
 
 globalWordTokens, globalWordVectors = extractVecs()
 ## Get index of word (in corpus) in the GloVe vector file
@@ -58,11 +52,6 @@ for word in word_tokens:
 		if bool(indValue) is True:
 			 word_vecs[word] = [word_ind,globalWordVectors[indValue[0],:]]	        
 		else:
-			if options.spellCheck is True:
-				indValue = np.where(globalWordTokens == spell(word.lower()))[0]
-				if bool(indValue) is True:
-					word_vecs[word] = [word_ind,globalWordVectors[indValue[0],:]]
-				
 			print   '"%s" does not appear in the gLoVe Dataset. Assigned random Word Vector' %word
 			word_vecs[word] = [word_ind,np.random.uniform(-2,2,size = 300)]
 			OOV_words+=1

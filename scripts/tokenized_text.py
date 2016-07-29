@@ -7,12 +7,10 @@ import os
 
 
 
-def tokenize(directory,exclude_files):
+def tokenize(directorys):
 	full_content = ''
 	for _file in os.listdir(directory):
 		#disp_count = 5
-		if exclude_files  and (_file in exclude_files):
-			continue
 		with open(directory+_file,'r') as f:
 			contents = f.readlines()
 			for item in contents:

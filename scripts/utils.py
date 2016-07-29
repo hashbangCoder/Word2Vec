@@ -3,25 +3,12 @@ import cPickle
 import pandas as pd
 import sys,os,random,h5py
 from nltk.tokenize import wordpunct_tokenize
+from sklearn.cross_validation import KFold
 
-
-def load_data(filePath='../Data/REF.csv',task = 'other',split = 0.8):
+def load_data(label,filePath='../Data/REF.csv',task = 'all',split = 0.8,generate_vectors = False):
 	if task == 'other':
-	
-		data = pd.read_csv(filePath,error_bad_lines=False,header=None)
-		trainSamples = int(options.split*Data.shape[0])
+		pass
 
-		trainData = Data.ix[:trainSamples,1].as_matrix()
-		trainLabels = Data.ix[:trainSamples,2].as_matrix()
-		trainLabels[np.where(trainLabels == 'NR')[0]] = 0
-		trainLabels[np.where(trainLabels == 'REF')[0]] = 1
-
-		validData = Data.ix[trainSamples:,1].as_matrix()
-		validLabels = Data.ix[trainSamples:,2].as_matrix()
-		validLabels[np.where(validLabels == 'NR')[0]] = 0
-		validLabels[np.where(validLabels == 'REF')[0]] = 1
-		return trainData,trainLabels,validData,validLabels
-	
 	elif task == 'all' : 
 		fileList = os.listdir('../Data/REF/Counselor/')
 		data, labels  = [],[]
@@ -29,19 +16,49 @@ def load_data(filePath='../Data/REF.csv',task = 'other',split = 0.8):
 		for fileName in fileList:
 			with open('../Data/REF/Counselor/'+fileName) as f:
 				data.append(f.read().strip().lower())
-				if 'REF' in fileName:
+				if label in fileName:
 					labels.append(1)
 				else:
 					labels.append(0)
-		trainSamples = int(len(data)*split)
-		trainData, trainLabels =  data[:trainSamples], labels[:trainSamples]
-		validData, validLabels = data[trainSamples:], labels[trainSamples:]			
+		if generate_vectors:
+			return data
+		return np.array(data,dtype = object),np.array(labels)
+	#	trainSamples = int(len(data)*split)
+	#	trainData, trainLabels =  data[:trainSamples], labels[:trainSamples]
+	#	validData, validLabels = data[trainSamples:], labels[trainSamples:]			
+	#	if label in ['SEEK','AUTO','PWOP','NGI','NPWP','AF','CON']:
+	#		c_samples = np.bincount(trainLabels)#len(np.where(trainLabels == 1 )[0])
+	#		#c0_samples = len(np.where(trainLabels == 0 )[0])
+	#		print c_samples
+	#		c_weights = trainSamples/(2.0*c_samples)
+	#		class_weights_dict = {0 :c_weights[0] , 1:c_weights[1] }
+	#	else:
+	#		class_weights_dict = None
+	#	return np.array(trainData,dtype=object),np.array(trainLabels,dtype='int32'),np.array(validData,dtype=object),np.array(validLabels,dtype='int32'),class_weights_dict
+	#		
+	#else:
+	#	print '\nInvalid data loading option'
+	#	sys.exit(1)
 
-		return trainData,trainLabels,validData,validLabels
-			
+def dataIter(data,labels,trainInd,validInd,label):
+		
+	trainData, trainLabels =  data[trainInd], labels[trainInd]
+	validData, validLabels = data[validInd], labels[validInd]
+	
+	if label in ['SEEK','AUTO','PWOP','NGI','NPWP','AF','CON']:
+			c_samples = np.bincount(trainLabels)#len(np.where(trainLabels == 1 )[0])
+			#c0_samples = len(np.where(trainLabels == 0 )[0])
+			print c_samples
+			c_weights = trainData.shape[0]/(2.0*c_samples)
+			class_weights_dict = {0 :c_weights[0] , 1:c_weights[1] }
 	else:
-		print '\nInvalid data loading option'
-		sys.exit(1)
+			class_weights_dict = None
+	return np.array(trainData,dtype=object),np.array(trainLabels,dtype='int32'),np.array(validData,dtype=object),np.array(validLabels,dtype='int32'),class_weights_dict
+			
+
+
+
+
 
 def precision_recall(validDataNumbers,validLabels,model,weightsPath = ''):
 	model.load_weights(weightsPath)
@@ -66,6 +83,23 @@ def precision_recall(validDataNumbers,validLabels,model,weightsPath = ''):
 
 	return c1_precision,c1_recall,c0_precision,c0_recall,accuracy,c1_fscore,c0_fscore
 
+
+def analyze_false(validData,validDataNumbers,validLabels,model):	
+	'Calculating precision and recall for best model...'
+	predictions = np.squeeze((model.predict(validDataNumbers) > 0.5).astype('int32'))
+	c1_inds = np.where(validLabels == 1)[0]
+	pos_inds = np.where((predictions+validLabels) == 2)[0] #np.squeeze(predictions) == validLabels
+	neg_inds = np.setdiff1d(c1_inds,pos_inds)
+	seq_lengths = np.zeros((validData.shape[0]))
+	for ind,row in np.ndenumerate(validData):
+	        seq_lengths[ind] = len(wordpunct_tokenize(row.lower().strip()))	
+
+	mean_true_length = np.mean(seq_lengths[pos_inds])	
+	mean_false_length = np.mean(seq_lengths[neg_inds])
+	
+	return mean_false_length,mean_true_length
+
+
 def saveResults(filePath,metadata,scores):
 	c1_precision = np.mean(scores['c1_precision'])
 	c1_recall = np.mean(scores['c1_recall'])
@@ -74,24 +108,19 @@ def saveResults(filePath,metadata,scores):
 	accuracy = np.mean(scores['accuracy'])
 	c1_fscore = np.mean(scores['c1_fscore'])
 	c0_fscore = np.mean(scores['c0_fscore'])
+	mfl = np.mean(scores['mean_false_length'])
+	mtl = np.mean(scores['mean_true_length'])
+	si = scores['samples_info']
 	with open(filePath,'a+') as f:
 		print >> f, str(metadata)
 		print >> f, 'Accuracy : %f' %accuracy 
 		print >> f, 'Class 1 (REF)--> Precision: %f  \tRecall : %f  \tF-Score : %f' %(c1_precision,c1_recall,c1_fscore)
 		print >> f, 'Class 0 (NR)--> Precision: %f  \tRecall : %f  \tf-Score : %f' %(c0_precision,c0_recall,c0_fscore)
+
+		print >> f, 'Mean False Length : %f \tMean True Length : %f' %(float(mfl),float(mtl))
+		for ind in range(len(si)):
+			print >> f, 'Run %d : \nTrain Samples : %d \tPostive Train Samples : %d\nValid Samples : %d\t Postive Valid Samples : %d' %(ind+1,si[ind][0],si[ind][1],si[ind][2],si[ind][3])
 		print >> f, '\n\n\n\n'
 		print 'Results saved to file'
 	
-def analyze_false(validData,validLabels,model,vec_dict,weightsPath = ''):	
-	model.load_weights(weightsPath)
-	'Calculating precision and recall for best model...'
-	predictions = model.predict(validData)
-	predictions =  (predictions > 0.5).astype('int32')
-	mean_length = np.zeros((validData.shape[0]))
-	for ind,row in np.ndenumerate(validData):
-	        mean_length[ind] = len(wordpunct_tokenize(row.lower().strip()))
-	positive_indexes = np.squeeze(predictions) == validLabels
-	mean_false_length = np.mean(mean_length[positive_indexes])	
-	mean_length = np.logical_not(mean_length[positive_indexes])
-
 
